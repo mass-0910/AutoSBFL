@@ -1,5 +1,6 @@
 import sys
 import os.path as path
+sys.path.append(path.join(path.dirname(__file__), "testselector"))
 import os
 import glob
 import subprocess
@@ -10,8 +11,8 @@ import re
 import math
 import shutil
 import xml.etree.ElementTree as ET
+from testselector.core import start_test_selection
 from utility import Util
-from javaparser import JavaParser
 from makehtml import SuspiciousHtmlMaker
 
 class CompileEvoSuiteError(Exception):
@@ -35,11 +36,15 @@ class Tool:
         self.exist_code_number = []
         self.exist_test_number = []
         self.testcase_coverage = {}
-        self.outputDir = ""
+        self.output_dir = ""
         self.evacuration_buf = {}
         self.allclass = None
+        if os.name == "nt":
+            self.javapath_split_char = ";"
+        else:
+            self.javapath_split_char = ":"
 
-    def setPath(self, mavenproject_path, javasource_path, expectedvaluefile_path=None):
+    def set_path(self, mavenproject_path, javasource_path, expectedvaluefile_path=None):
         self.mavenproject_path = mavenproject_path
         self.javasource_path = javasource_path
         self.expectedjson_path = expectedvaluefile_path
@@ -58,36 +63,42 @@ class Tool:
 
     def phase1(self):
         try:
-            self.compileMavenProject()
+            self.compile_maven_project()
             self.source2ClassPath()
             print(self.javaclass_path)
             print(self.javaclass_name)
-            self.makeEvosuiteTest()
+            self.make_evosuite_test()
+            self.modify_evosuite_test(self.get_evosuite_test_path())
+            self.modify_scaffolding(self.get_evosuite_test_scaffolding_path())
+            start_test_selection(
+                self.get_evosuite_test_path(),
+                self.javasource_path,
+                self.collect_all_class_path(),
+                self.collect_all_source_path(),
+                [self.get_evosuite_test_scaffolding_path()]
+            )
         except:
             raise
 
     def phase2(self):
         try:
             self.source2ClassPath()
-            self.addLineNum()
-            self.compileMavenProject()
-            self.compileEvosuiteTest()
-            self.execEvosuiteTest()
-            self.collectCoverage()
-            self.collectObjectStateXML()
-            self.collectStdout()
-            self.judgeTest()
-            self.calculateOchiai()
-            self.makeCoverageCsv()
-            self.undoAddLineNum()
-            self.makeSuspiciousValueHtml()
+            self.compile_maven_project()
+            self.compile_evosuite_test()
+            self.exec_evosuite_test()
+            self.collect_coverage()
+            self.collect_object_state_x_m_l()
+            self.collect_stdout()
+            self.judge_test()
+            self.calculate_ochiai()
+            self.make_coverage_csv()
+            self.make_suspicious_value_html()
         except:
-            self.undoAddLineNum()
             raise
 
     def source2ClassPath(self):
-        classnames = getClassName(self.javasource_path)
-        packagename = getPackageName(self.javasource_path)
+        classnames = get_class_name(self.javasource_path)
+        packagename = get_package_name(self.javasource_path)
         print(classnames)
         print(packagename)
         if not classnames:
@@ -119,17 +130,7 @@ class Tool:
                 before_dir = path.basename(parent)
                 parent = path.dirname(parent)
 
-    def addLineNum(self):
-        print("addLineNum start")
-        self._copy(self.javasource_path, "temp1")
-        inserter = JavaParser(self.javasource_path)
-        inserter.startInsert()
-        self.outputDir = "."
-        if self.outputDir:
-            shutil.copy(self.javasource_path, self.outputDir)
-        self.outputDir = ""
-
-    def _fileCopyAndMakeLineList(self, filepath, temppath) -> list:
+    def file_copy_and_make_line_list(self, filepath, temppath) -> list:
         with open(filepath, mode="r+") as f:
             # with open(temppath, mode="w") as tmpf:
             #     tmpf.write(f.read())
@@ -138,7 +139,7 @@ class Tool:
             source_lines = [line.rstrip(os.linesep) for line in f.readlines()]
         return source_lines
 
-    def _removeComment(self, source_lines) -> list:
+    def remove_comment(self, source_lines) -> list:
         in_comment = False
         for i, line in enumerate(source_lines):
             buf = ""
@@ -175,40 +176,47 @@ class Tool:
             source_lines[i] = buf
         return source_lines
 
-    def undoAddLineNum(self):
-        self._undoCopy(self.javasource_path, "temp1")
+    def undo_add_line_num(self):
+        self.undo_copy(self.javasource_path, "temp1")
 
-    def _copy(self, src_path, copy_path):
+    def copy(self, src_path, copy_path):
         # with open(src_path, mode="r") as rf, open(copy_path, mode="w") as wf:
         #     wf.write(rf.read())
         with open(src_path, mode="r") as rf:
             self.evacuration_buf[copy_path] = rf.read()
 
-    def _undoCopy(self, src_path, copy_path):
+    def undo_copy(self, src_path, copy_path):
         # with open(copy_path, mode="r") as rf, open(src_path, mode="w") as wf:
         #     wf.write(rf.read())
         with open(src_path, mode="w") as wf:
             wf.write(self.evacuration_buf[copy_path])
 
-    def compileMavenProject(self):
-        result0 = subprocess.run(["mvn", "clean"], cwd=self.mavenproject_path)
-        result1 = subprocess.run(["mvn", "compile"], cwd=self.mavenproject_path)
+    def compile_maven_project(self):
+        print(self.mavenproject_path)
+        result0 = subprocess.run("mvn clean", cwd=self.mavenproject_path, shell=True)
+        if result0.returncode != 0:
+            raise MavenError("Maven clean finished with Error!")
+        result1 = subprocess.run("mvn compile", cwd=self.mavenproject_path, shell=True)
         if result1.returncode != 0:
             raise MavenError("Maven compile finished with Error!")
         # result2 = subprocess.run(["mvn", "test-compile"], cwd=self.mavenproject_path)
         # if result2.returncode != 0:
         #     raise MavenError("Maven test-compile finished with Error!")
 
-    def getThisProjectPath(self) -> str:
-        return path.dirname(path.dirname(path.abspath(__file__)))
+    def get_this_project_path(self) -> str:
+        return path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
 
-    def _collectAllClassPath(self) -> str:
+    def collect_all_source_path(self) -> str:
+        src_dir_list = glob.glob(path.join(self.mavenproject_path, "**/src/main/java"), recursive=True)
+        return self.javapath_split_char.join(src_dir_list)
+
+    def collect_all_class_path(self) -> str:
         if self.allclass == None:
             path_includes_classes = glob.glob(path.join(self.mavenproject_path, "**/*classes*"), recursive=True)
-            self.allclass = ":".join(self.deleteSameClassPath(path_includes_classes))
+            self.allclass = self.javapath_split_char.join(self.delete_same_class_path(path_includes_classes))
         return self.allclass
 
-    def deleteSameClassPath(self, class_list:list) -> list:
+    def delete_same_class_path(self, class_list:list) -> list:
         allclass_buf = {}
         for classpath in class_list:
             allclass_rem = []
@@ -216,7 +224,7 @@ class Tool:
             for buf_classpath, buf_classfiles in allclass_buf.items():
                 for e_classfiles in classfiles:
                     if e_classfiles in buf_classfiles:
-                        if Tool._pathDistance(self.javasource_path, classpath) < Tool._pathDistance(self.javasource_path, buf_classpath):
+                        if Tool.path_distance(self.javasource_path, classpath) < Tool.path_distance(self.javasource_path, buf_classpath):
                             allclass_rem.append(buf_classpath)
                         else:
                             allclass_rem.append(classpath)
@@ -228,137 +236,111 @@ class Tool:
                     print("remove", rem_classpath)
         return list(allclass_buf.keys())
 
-    def makeEvosuiteTest(self):
-        print("makeEvosuiteTest start")
-        evosuite_command = ["java", "-jar", path.join(self.getThisProjectPath(), "ext_modules", "evosuite-1.1.0.jar"), "-class", self.javaclass_name, "-projectCP", self._collectAllClassPath()]
+    def make_evosuite_test(self) -> str:
+        print("make_evosuite_test start")
+        evosuite_command = ["java", "-jar", path.join(self.get_this_project_path(), "ext-modules", "evosuite-1.1.0.jar"), "-class", self.javaclass_name, "-projectCP", self.collect_all_class_path()]
         # raise Exception(str(evosuite_command))
+        print(f"execute: {' '.join(evosuite_command)}")
         result = subprocess.run(evosuite_command, cwd=self.mavenproject_path)
         if result.returncode != 0:
             raise MakeEvoSuiteError("Some exception has occured in Making EvoSuite Test!")
 
-    def _getJavaEnvironment(self) -> dict:
-        print("path = " + self.getThisProjectPath())
-        evosuite_compile_classpath = ':'.join([
-            self._collectAllClassPath(),
-            path.join(self.getThisProjectPath(), "ext_modules", "evosuite-standalone-runtime-1.1.0.jar"),
+
+    def get_java_environment(self) -> dict:
+        print("path = " + self.get_this_project_path())
+        evosuite_compile_classpath = self.javapath_split_char.join([
+            self.collect_all_class_path(),
+            path.join(self.get_this_project_path(), "ext-modules", "evosuite-standalone-runtime-1.1.0.jar"),
             "evosuite-tests",
-            path.join(self.getThisProjectPath(), "ext_modules", "junit-4.12.jar"),
-            path.join(self.getThisProjectPath(), "ext_modules", "hamcrest-core-1.3.jar"),
-            path.join(self.getThisProjectPath(), "ext_modules", "xstream", "xstream-1.4.15.jar"),
-            path.join(self.getThisProjectPath(), "ext_modules", "xstream", "xstream", "*")
+            path.join(self.get_this_project_path(), "ext-modules", "junit-4.12.jar"),
+            path.join(self.get_this_project_path(), "ext-modules", "hamcrest-core-1.3.jar"),
+            path.join(self.get_this_project_path(), "ext-modules", "xstream", "xstream-1.4.18", "lib", "xstream-1.4.18.jar"),
+            path.join(self.get_this_project_path(), "ext-modules", "xstream", "xstream-1.4.18", "lib", "xstream", "*")
         ])
         java_environ = os.environ
         java_environ["CLASSPATH"] = evosuite_compile_classpath
         return java_environ
 
-    def _getEvosuiteTestPath(self) -> str:
+    def get_evosuite_test_path(self) -> str:
         javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
         for esfile in javafiles:
-            if getClassName(self.javasource_path)[0] + "_ESTest.java" in esfile:
+            if get_class_name(self.javasource_path)[0] + "_ESTest.java" in esfile:
                 testcase_file = esfile
                 break
         try:
             return testcase_file
         except:
-            raise Exception("javafile: " + str(javafiles) + "\nclassname: " + str(getClassName(self.javasource_path)[0]))
+            raise Exception("javafile: " + str(javafiles) + "\nclassname: " + str(get_class_name(self.javasource_path)[0]))
 
-    def _getEvosuiteTestScaffoldingPath(self) -> str:
+    def get_evosuite_test_scaffolding_path(self) -> str:
         javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
         for esfile in javafiles:
-            if getClassName(self.javasource_path)[0] + "_ESTest_scaffolding.java" in esfile:
+            if get_class_name(self.javasource_path)[0] + "_ESTest_scaffolding.java" in esfile:
                 testcase_file = esfile
                 break
         return testcase_file
 
-    def getESTestFiles(self) -> list:
+    def get_e_s_test_files(self) -> list:
         javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
-        javafiles = [e for e in javafiles if (getClassName(self.javasource_path)[0] in e)]
+        javafiles = [e for e in javafiles if (get_class_name(self.javasource_path)[0] in e)]
         return javafiles
 
-    def compileEvosuiteTest(self):
-        print("compileEvosuiteTest start")
-        javafiles = self.getESTestFiles()
+    def compile_evosuite_test(self):
+        print("compile_evosuite_test start")
+        javafiles = self.get_e_s_test_files()
         try:
-            testcase_file = self._getEvosuiteTestPath()
+            testcase_file = self.get_evosuite_test_path()
         except:
             raise
-        scaffolding_file = self._getEvosuiteTestScaffoldingPath()
+        scaffolding_file = self.get_evosuite_test_scaffolding_path()
         try:
-            self._addTestNumber(testcase_file)
+            self.modify_evosuite_test(testcase_file)
         except:
-            self._undoCopy(testcase_file, "temp2")
+            self.undo_copy(testcase_file, "temp2")
             raise
         try:
-            self._modifyScaffolding(scaffolding_file)
+            self.modify_scaffolding(scaffolding_file)
         except:
-            self._undoCopy(scaffolding_file, "temp3")
+            self.undo_copy(scaffolding_file, "temp3")
             raise
-        if self.outputDir:
-            shutil.copy(testcase_file, self.outputDir)
+        if self.output_dir:
+            shutil.copy(testcase_file, self.output_dir)
         try:
             command = ["javac", "-g"] + javafiles
-            result = subprocess.run(command, env=self._getJavaEnvironment(), cwd=self.mavenproject_path)
+            result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path)
             if result.returncode != 0:
                 raise CompileEvoSuiteError("Some exception has occured in Compiling EvoSuite Test!")
-            self._undoCopy(testcase_file, "temp2")
-            self._undoCopy(scaffolding_file, "temp3")
+            self.undo_copy(testcase_file, "temp2")
+            self.undo_copy(scaffolding_file, "temp3")
         except:
             print("m")
-            self._undoCopy(testcase_file, "temp2")
-            self._undoCopy(scaffolding_file, "temp3")
+            self.undo_copy(testcase_file, "temp2")
+            self.undo_copy(scaffolding_file, "temp3")
             raise
 
-    def _addTestNumber(self, ESTest_path):
-        print("_addTestNumber start")
-        virtualJVM_pattern = re.compile(r'mockJVMNonDeterminism = true')
-        separateClassLoader_pattern = re.compile(r'separateClassLoader = true')
+    def modify_evosuite_test(self, evosuite_test_path):
+        print("modify_evosuite_test start")
+        virtual_jvm_pattern = re.compile(r'mockJVMNonDeterminism = true')
+        separate_class_loader_pattern = re.compile(r'separateClassLoader = true')
         timeout_pattern = re.compile(r'@Test\(timeout = [0-9]+\)')
         try:
-            source_lines = self._fileCopyAndMakeLineList(ESTest_path, "temp2")
-            # source_lines = self._removeComment(source_lines)
-            # print(source_lines)
-            with open(ESTest_path, mode='w') as f:
-                func_dive = 0
-                in_func = False
-                objectname = []
+            source_lines = self.file_copy_and_make_line_list(evosuite_test_path, "temp2")
+            with open(evosuite_test_path, mode='w') as f:
                 imported = False
                 for line in source_lines:
-                    tokenized_line = Util.splitToken(line)
-                    if len(tokenized_line) >= 3:
-                        if tokenized_line[0] == "public" and tokenized_line[1] == "void" and "test" in tokenized_line[2]:
-                            test_number = tokenized_line[2].replace("test", "")
-                            print(line, file=f)
-                            print("System.out.println(\"ESTest_test[" + test_number + "]\");", file=f)
-                            func_dive = 1
-                            in_func = True
-                            continue
-                    if in_func:
-                        func_dive += tokenized_line.count('{')
-                        func_dive -= tokenized_line.count('}')
-                        if len(tokenized_line) >= 2:
-                            if getClassName(self.javasource_path)[0] == tokenized_line[0] and Util.isIdentifier(tokenized_line[1]):
-                                objectname.append(tokenized_line[1])
-                        if func_dive == 0:
-                            in_func = False
-                            for o in objectname:
-                                print("System.out.println(\"FilallyObjectAttributes_start[" + o + "]\");", file=f)
-                                print("try{System.out.println(new XStream().toXML(" + o + "));}catch(Exception e){e.printStackTrace();}", file=f)
-                                print("System.out.println(\"FilallyObjectAttributes_end[" + o + "]\");", file=f)
-                            objectname = []
-                            print(line, file=f)
-                            continue
+                    tokenized_line = Util.split_token(line)
                     if not imported and "import" in tokenized_line:
                         print("import com.thoughtworks.xstream.XStream;", file=f)
                         imported = True
-                    line_replaced = timeout_pattern.sub("@Test", separateClassLoader_pattern.sub(r'separateClassLoader = false', virtualJVM_pattern.sub(r"mockJVMNonDeterminism = false", line)))
+                    line_replaced = timeout_pattern.sub("@Test", separate_class_loader_pattern.sub(r'separateClassLoader = false', virtual_jvm_pattern.sub(r"mockJVMNonDeterminism = false", line)))
                     print(line_replaced, file=f)
         except:
             raise
 
-    def _modifyScaffolding(self, scaffoldinf_path):
-        print("_modifyScaffolding start")
+    def modify_scaffolding(self, scaffoldinf_path):
+        print("modify_scaffolding start")
         try:
-            source_lines = self._fileCopyAndMakeLineList(scaffoldinf_path, "temp3")
+            source_lines = self.file_copy_and_make_line_list(scaffoldinf_path, "temp3")
             with open(scaffoldinf_path, mode='w') as f:
                 for line in source_lines:
                     if "org.evosuite.runtime.RuntimeSettings.maxNumberOfIterationsPerLoop = 10000;" in line:
@@ -368,18 +350,18 @@ class Tool:
         except:
             raise
 
-    def execEvosuiteTest(self):
-        print("execEvosuiteTest start")
-        command = ["java", "org.junit.runner.JUnitCore", getPackageName(self.javasource_path) + "." + getClassName(self.javasource_path)[0] + "_ESTest"]
-        result = subprocess.run(command, env=self._getJavaEnvironment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE)
+    def exec_evosuite_test(self):
+        print("exec_evosuite_test start")
+        command = ["java", "org.junit.runner.JUnitCore", get_package_name(self.javasource_path) + "." + get_class_name(self.javasource_path)[0] + "_ESTest"]
+        result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE)
         self.output = result.stdout.decode("utf-8")
         self.output_list = self.output.split("\n")
-        with open(self.outputDir + "EvoSuiteTestOutput", mode='w') as f:
+        with open(self.output_dir + "EvoSuiteTestOutput", mode='w') as f:
             for l in self.output_list:
                 print(l, file=f)
 
-    def collectCoverage(self):
-        print("collectCoverage start")
+    def collect_coverage(self):
+        print("collect_coverage start")
         testnum_str = "ESTest_test["
         linenum_str = "line["
         for line in self.output_list:
@@ -419,12 +401,12 @@ class Tool:
                 continue
         print(self.testcase_coverage)
 
-    def collectObjectStateXML(self):
+    def collect_object_state_x_m_l(self):
         final_state = {}
         testnum_str = "ESTest_test["
-        XMLstart_str = "FilallyObjectAttributes_start["
-        XMLend_str = "FilallyObjectAttributes_end["
-        in_XML = False
+        x_m_lstart_str = "FilallyObjectAttributes_start["
+        x_m_lend_str = "FilallyObjectAttributes_end["
+        in_x_m_l = False
         for line in self.output_list:
             if testnum_str in line:
                 testnumber = 0
@@ -434,26 +416,26 @@ class Tool:
                     i += 1
                 final_state["test" + str(testnumber)] = {}
                 continue
-            if XMLstart_str in line:
-                i = line.find(XMLstart_str) + len(XMLstart_str)
+            if x_m_lstart_str in line:
+                i = line.find(x_m_lstart_str) + len(x_m_lstart_str)
                 buf = ""
                 while i < len(line) and line[i].isalnum() and line[i] != ']':
                     buf += line[i]
                     i += 1
                 xmlobject_name = buf
                 final_state["test" + str(testnumber)][xmlobject_name] = ""
-                in_XML = True
+                in_x_m_l = True
                 continue
-            if XMLend_str in line:
-                in_XML = False
+            if x_m_lend_str in line:
+                in_x_m_l = False
                 continue
-            if in_XML:
+            if in_x_m_l:
                 final_state["test" + str(testnumber)][xmlobject_name] += line + "\n"
-        with open(self.outputDir + "out_attrs.json", mode='w') as f:
+        with open(self.output_dir + "out_attrs.json", mode='w') as f:
             json.dump(final_state, fp=f, indent=4)
-        self._convertStateXMLToElementTree(final_state)
+        self.convert_state_x_m_l_to_element_tree(final_state)
 
-    def collectStdout(self):
+    def collect_stdout(self):
         self.testcase_stdout = {}
         test_re = re.compile(r"\.ESTest_test\[[0-9]+?\]\n")
         testnum_re = re.compile(r"\.ESTest_test\[([0-9]+?)\]\n")
@@ -466,10 +448,10 @@ class Tool:
         testcase_order = testnum_re.findall(stdout_all)
         for i, testnum in enumerate(testcase_order):
             self.testcase_stdout["test" + testnum] = testcase_stdout_list[i]
-        with open(self.outputDir + "outstdout.json", mode='w') as f:
+        with open(self.output_dir + "outstdout.json", mode='w') as f:
             json.dump(self.testcase_stdout, f, indent=4)
 
-    def _convertStateXMLToElementTree(self, finalstate):
+    def convert_state_x_m_l_to_element_tree(self, finalstate):
         pattern = re.compile(u'&#x[0-9]+;')
         self.testcase_finalstate = {}
         for testname, state_XMLs in finalstate.items():
@@ -477,7 +459,7 @@ class Tool:
             for objectname, state_XML in state_XMLs.items():
                 self.testcase_finalstate[testname][objectname] = ET.fromstring(pattern.sub(u'',state_XML))
 
-    def judgeTest(self):
+    def judge_test(self):
         self.testcase_passfail = {}
         with open(self.expectedjson_path, mode='r') as f:
             expected_dict:dict = json.load(f)
@@ -494,7 +476,7 @@ class Tool:
                 state = finally_status_dict["finallyObjectState"]
                 try:
                     for objectname, status in state.items():
-                        if self._isSatisfiedState(self.testcase_finalstate[testname][objectname], expected_dict=status):
+                        if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status):
                             self.testcase_passfail[testname] = True
                         else:
                             self.testcase_passfail[testname] = False
@@ -504,10 +486,10 @@ class Tool:
                 if not self.testcase_stdout[testname] == finally_status_dict["stdout"]:
                     self.testcase_passfail[testname] = False
         print(self.testcase_passfail)
-        with open(self.outputDir + "passfail.json", mode='w') as f:
+        with open(self.output_dir + "passfail.json", mode='w') as f:
             json.dump(self.testcase_passfail, f)
 
-    def calculateOchiai(self):
+    def calculate_ochiai(self):
         self.ochiai = {}
         line_pfnum = {}
         total_fail = 0
@@ -531,26 +513,26 @@ class Tool:
                 continue
             self.ochiai[linename] = pfnum['fail'] / math.sqrt(total_fail * (pfnum['fail'] + pfnum['pass']))
 
-    def makeSuspiciousValueHtml(self):
+    def make_suspicious_value_html(self):
         try:
             html_maker = SuspiciousHtmlMaker(self.javasource_path, self.ochiai)
-            html_maker.write_html(self.outputDir)
+            html_maker.write_html(self.output_dir)
         except:
             raise
 
-    def _isSatisfiedState(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None) -> bool:
-        if expected_dict == None and expected_list == None: raise Exception("_isSatisfiedState(): no expected values was given.")
-        if expected_dict != None and expected_list != None: raise Exception("_isSatisfiedState(): both dict and list was given.")
+    def is_satisfied_state(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None) -> bool:
+        if expected_dict == None and expected_list == None: raise Exception("is_satisfied_state(): no expected values was given.")
+        if expected_dict != None and expected_list != None: raise Exception("is_satisfied_state(): both dict and list was given.")
         if expected_dict != None and expected_list == None:
             for attr_name, exp_value in expected_dict.items():
                 attr_tree = tree.find(attr_name)
                 if attr_tree != None:
-                    if self._isSatisfiedStateLoopElement(attr_tree, exp_value):
+                    if self.is_satisfied_state_loop_element(attr_tree, exp_value):
                         continue
                     else:
                         return False
                 else:
-                    if self._isSatisfiedValue("null", exp_value):
+                    if self.is_satisfied_value("null", exp_value):
                         continue
                     else:
                         return False
@@ -558,28 +540,28 @@ class Tool:
             if len(tree) != len(expected_list):
                 return False
             for i, exp_value in enumerate(expected_list):
-                if not self._isSatisfiedStateLoopElement(tree[i], exp_value):
+                if not self.is_satisfied_state_loop_element(tree[i], exp_value):
                     return False
         return True
 
-    def _isSatisfiedStateLoopElement(self, attr_tree, exp_elm) -> bool:
+    def is_satisfied_state_loop_element(self, attr_tree, exp_elm) -> bool:
         if isinstance(exp_elm, dict): #if exp_elm is object
             if attr_tree.text != "":
-                return self._isSatisfiedState(attr_tree, expected_dict=exp_elm)
+                return self.is_satisfied_state(attr_tree, expected_dict=exp_elm)
             else:
                 return False
         elif isinstance(exp_elm, list): #if exp_elm is array
             if attr_tree.text != "":
-                return self._isSatisfiedState(attr_tree, expected_list=exp_elm)
+                return self.is_satisfied_state(attr_tree, expected_list=exp_elm)
             else:
                 return False
         else: #if exp_elm is primitive or string
-            if self._isSatisfiedValue(attr_tree.text, str(exp_elm)):
+            if self.is_satisfied_value(attr_tree.text, str(exp_elm)):
                 return True
             else:
                 return False
 
-    def _isSatisfiedValue(self, xml_elm_str, exp_elm_str) -> bool:
+    def is_satisfied_value(self, xml_elm_str, exp_elm_str) -> bool:
         if xml_elm_str == "null":
             if exp_elm_str == "null" or exp_elm_str == "any":
                 return True
@@ -593,9 +575,9 @@ class Tool:
             else:
                 return False
 
-    def makeCoverageCsv(self):
-        print("makeCoverageCsv start")
-        with open(self.outputDir + "output.csv", mode="w") as f:
+    def make_coverage_csv(self):
+        print("make_coverage_csv start")
+        with open(self.output_dir + "output.csv", mode="w") as f:
             print(",", file=f, end="")
             for linenum in self.exist_code_number:
                 print("line-" + str(linenum) + ",", file=f, end="")
@@ -609,7 +591,7 @@ class Tool:
                 print("", file=f)
 
     @staticmethod
-    def _pathDistance(path1:str, path2:str) -> int:
+    def path_distance(path1:str, path2:str) -> int:
         path1_split = path1.split(path.sep)
         path2_split = path2.split(path.sep)
         count = 0
@@ -620,12 +602,12 @@ class Tool:
         return len(path1_split[count:]) + len(path2_split[count:])
 
 
-def getClassName(filename:str) -> list:
+def get_class_name(filename:str) -> list:
     retval = []
     with open(filename) as f:
         in_comment = False
         for line in f.readlines():
-            tokenized = Util.splitToken(line)
+            tokenized = Util.split_token(line)
             if tokenized:
                 if tokenized[0] == "//": continue
                 for i, token in enumerate(tokenized):
@@ -644,13 +626,13 @@ def getClassName(filename:str) -> list:
                             print("Error line: " + line.rstrip(os.linesep))
     return retval
 
-def getPackageName(filename:str) -> str:
+def get_package_name(filename:str) -> str:
     retval = ""
     with open(filename) as f:
         in_comment = False
         for line in f.readlines():
             if retval: break
-            tokenized = Util.splitToken(line)
+            tokenized = Util.split_token(line)
             if tokenized:
                 for i, token in enumerate(tokenized):
                     if token == "//" and not in_comment: break
@@ -663,12 +645,12 @@ def getPackageName(filename:str) -> str:
                     if token == "package" and not in_comment:
                         try:
                             buf = ""
-                            token_ = tokenized[i+1]
+                            token = tokenized[i+1]
                             j = i + 1
-                            while token_ != ";":
-                                buf += token_
+                            while token != ";":
+                                buf += token
                                 j += 1
-                                token_ = tokenized[j]
+                                token = tokenized[j]
                             retval = buf
                             break
                         except IndexError as e:
@@ -691,9 +673,9 @@ class Argument(argparse.ArgumentParser):
         phase2_parser.set_defaults(handler=phase2_func)
         help_parser = self.sub_parser.add_parser("help", help="See 'help -h'")
         help_parser.add_argument("command", help="Command name which help is shown")
-        help_parser.set_defaults(handler=self._showHelp)
+        help_parser.set_defaults(handler=self.show_help)
 
-    def _showHelp(self, args):
+    def show_help(self, args):
         self.parse_args([args.command, '--help'])
 
 if __name__ == "__main__":
@@ -705,9 +687,9 @@ if __name__ == "__main__":
         try:
             if not hasattr(args, 'command'):
                 if hasattr(args, 'expectedvaluefile_path'):
-                    tool.setPath(args.mavenproject_path, args.javasource_path, args.expectedvaluefile_path)
+                    tool.set_path(args.mavenproject_path, args.javasource_path, args.expectedvaluefile_path)
                 else:
-                    tool.setPath(args.mavenproject_path, args.javasource_path)
+                    tool.set_path(args.mavenproject_path, args.javasource_path)
                 args.handler()
             else:
                 args.handler(args)

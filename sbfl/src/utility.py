@@ -4,7 +4,7 @@ class Util:
 
     symbol = ['//', '/*', '*/', '\'', ',', '.', '+', '-', '*', '/', '%', '++', '--', '&', '|', '~', '<<', '>>', '>>>', '{', '}', '[', ']', '(', ')', ';', ':', '=', '>', '<', '!', '?', '==', '&&', '||', '+=', '-=', '*=', '/=', '<=', '>=', '&=', '|=', '^=', '<<=', '>>=', '>>>=', '@']
     space = [' ', '\t', '\n', '\r']
-    keywords = [   
+    keywords = [
                     "abstract", "assert", "break", "byte", "case", "catch", "class", "const", \
                     "continue", "default", "do", "else", "enum", "extends", "final", "finally", \
                     "for", "goto", "if", "implements", "import", "instanceof", "interface", "native", \
@@ -16,14 +16,14 @@ class Util:
     all_type = []
 
     @staticmethod
-    def getAllClass():
-        with open(os.path.dirname(__file__) + "/java-classname.txt") as fp:
+    def get_all_class():
+        with open(os.path.join(os.path.dirname(__file__), "java-classname.txt")) as fp:
             Util.all_type = fp.readlines()
         for i, classname in enumerate(Util.all_type):
             Util.all_type[i] = classname.strip()
 
     @staticmethod
-    def splitToken(sentence):
+    def split_token(sentence):
         retval = []
         buf = ""
         mode = 0 #name
@@ -80,16 +80,16 @@ class Util:
             retval.append(buf)
             buf = ""
         return retval
-    
+
     @staticmethod
-    def isIdentifier(token):
-        if not token in Util.symbol and not token in Util.keywords and not Util.isString(token):
+    def is_identifier(token):
+        if not token in Util.symbol and not token in Util.keywords and not Util.is_string(token):
             return True
         else:
             return False
-    
+
     @staticmethod
-    def isString(token):
+    def is_string(token):
         if token[0] == "\"" and token[-1] == "\"":
             return True
         else:
