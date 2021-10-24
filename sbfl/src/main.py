@@ -12,6 +12,10 @@ import math
 import shutil
 import xml.etree.ElementTree as ET
 from testselector.core import start_test_selection
+from testselector.extract import extract_testcase_line_number
+from testselector.maketest import make_alone_test
+from testselector.coverage import measure_coverage
+from testselector.analyze import get_package_name
 from utility import Util
 from makehtml import SuspiciousHtmlMaker
 
@@ -27,6 +31,9 @@ class MakeEvoSuiteError(Exception):
 class ExpectFileError(Exception):
     pass
 
+class TempDirExistError(Exception):
+    pass
+
 class Tool:
 
     def __init__(self):
@@ -36,9 +43,10 @@ class Tool:
         self.exist_code_number = []
         self.exist_test_number = []
         self.testcase_coverage = {}
-        self.output_dir = ""
+        self.output_dir = "out"
         self.evacuration_buf = {}
         self.allclass = None
+        self.temp_dir = "temp"
         if os.name == "nt":
             self.javapath_split_char = ";"
         else:
@@ -82,12 +90,19 @@ class Tool:
 
     def phase2(self):
         try:
+            self.make_temp_dir()
+            self.make_out_dir()
+        except:
+            raise
+        self.backup_testcase()
+        try:
             self.source2ClassPath()
             self.compile_maven_project()
+            self.add_infomation_output_to_evosuite_test(self.get_selected_evosuite_test_path())
             self.compile_evosuite_test()
             self.exec_evosuite_test()
             self.collect_coverage()
-            self.collect_object_state_x_m_l()
+            self.collect_object_state_xml()
             self.collect_stdout()
             self.judge_test()
             self.calculate_ochiai()
@@ -95,6 +110,26 @@ class Tool:
             self.make_suspicious_value_html()
         except:
             raise
+        finally:
+            self.recover_testcase()
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+            pass
+
+    def make_temp_dir(self):
+        if not path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir)
+        else:
+            raise TempDirExistError("Temporary directory has already existed")
+
+    def make_out_dir(self):
+        if not path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+
+    def backup_testcase(self):
+        shutil.copy(self.get_selected_evosuite_test_path(), self.temp_dir)
+
+    def recover_testcase(self):
+        shutil.copy(path.join(self.temp_dir, path.basename(self.get_selected_evosuite_test_path())), self.get_selected_evosuite_test_path())
 
     def source2ClassPath(self):
         classnames = get_class_name(self.javasource_path)
@@ -253,7 +288,7 @@ class Tool:
             path.join(self.get_this_project_path(), "ext-modules", "evosuite-standalone-runtime-1.1.0.jar"),
             "evosuite-tests",
             path.join(self.get_this_project_path(), "ext-modules", "junit-4.12.jar"),
-            path.join(self.get_this_project_path(), "ext-modules", "hamcrest-core-1.3.jar"),
+            path.join(self.get_this_project_path(), "ext-modules", "hamcrest-2.2.jar"),
             path.join(self.get_this_project_path(), "ext-modules", "xstream", "xstream-1.4.18", "lib", "xstream-1.4.18.jar"),
             path.join(self.get_this_project_path(), "ext-modules", "xstream", "xstream-1.4.18", "lib", "xstream", "*")
         ])
@@ -272,6 +307,17 @@ class Tool:
         except:
             raise Exception("javafile: " + str(javafiles) + "\nclassname: " + str(get_class_name(self.javasource_path)[0]))
 
+    def get_selected_evosuite_test_path(self) -> str:
+        javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
+        for esfile in javafiles:
+            if get_class_name(self.javasource_path)[0] + "_ESTest_selected.java" in esfile:
+                testcase_file = esfile
+                break
+        try:
+            return testcase_file
+        except:
+            raise Exception("javafile: " + str(javafiles) + "\nclassname: " + str(get_class_name(self.javasource_path)[0]))
+
     def get_evosuite_test_scaffolding_path(self) -> str:
         javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
         for esfile in javafiles:
@@ -280,16 +326,11 @@ class Tool:
                 break
         return testcase_file
 
-    def get_e_s_test_files(self) -> list:
-        javafiles = glob.glob(path.join(self.mavenproject_path, "evosuite-tests/**/*.java"), recursive=True)
-        javafiles = [e for e in javafiles if (get_class_name(self.javasource_path)[0] in e)]
-        return javafiles
-
     def compile_evosuite_test(self):
         print("compile_evosuite_test start")
-        javafiles = self.get_e_s_test_files()
+        javafiles = [self.get_selected_evosuite_test_path(), self.get_evosuite_test_scaffolding_path()]
         try:
-            testcase_file = self.get_evosuite_test_path()
+            testcase_file = self.get_selected_evosuite_test_path()
         except:
             raise
         scaffolding_file = self.get_evosuite_test_scaffolding_path()
@@ -307,6 +348,7 @@ class Tool:
             shutil.copy(testcase_file, self.output_dir)
         try:
             command = ["javac", "-g"] + javafiles
+            print(' '.join(command))
             result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path)
             if result.returncode != 0:
                 raise CompileEvoSuiteError("Some exception has occured in Compiling EvoSuite Test!")
@@ -350,63 +392,130 @@ class Tool:
         except:
             raise
 
+    def add_infomation_output_to_evosuite_test(self, evosuite_test_path):
+        print("add_infomation_output start")
+        try:
+            source_lines = self.file_copy_and_make_line_list(evosuite_test_path, "temp3")
+            with open(evosuite_test_path, mode='w') as f:
+                func_dive = 0
+                in_func = False
+                objectname = []
+                for line in source_lines:
+                    tokenized_line = Util.split_token(line)
+                    if len(tokenized_line) >= 3:
+                        if tokenized_line[0] == "public" and tokenized_line[1] == "void" and "test" in tokenized_line[2]:
+                            test_number = tokenized_line[2].replace("test", "")
+                            print(line, file=f)
+                            print("System.out.println(\"ESTest_test[" + test_number + "]\");", file=f)
+                            func_dive = 1
+                            in_func = True
+                            continue
+                    if in_func:
+                        func_dive += tokenized_line.count('{')
+                        func_dive -= tokenized_line.count('}')
+                        if len(tokenized_line) >= 2:
+                            if get_class_name(self.javasource_path)[0] == tokenized_line[0] and Util.is_identifier(tokenized_line[1]):
+                                objectname.append(tokenized_line[1])
+                        if func_dive == 0:
+                            in_func = False
+                            for o in objectname:
+                                print("System.out.println(\"FilallyObjectAttributes_start[" + o + "]\");", file=f)
+                                print("try{System.out.println(new XStream().toXML(" + o + "));}catch(Exception e){e.printStackTrace();}", file=f)
+                                print("System.out.println(\"FilallyObjectAttributes_end[" + o + "]\");", file=f)
+                            objectname = []
+                    print(line, file=f)
+        except:
+            raise
+
     def exec_evosuite_test(self):
         print("exec_evosuite_test start")
-        command = ["java", "org.junit.runner.JUnitCore", get_package_name(self.javasource_path) + "." + get_class_name(self.javasource_path)[0] + "_ESTest"]
+        command = ["java", "org.junit.runner.JUnitCore", get_package_name(self.javasource_path) + "." + get_class_name(self.javasource_path)[0] + "_ESTest_selected"]
+        print("execevosuite: " + " ".join(command))
         result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE)
         self.output = result.stdout.decode("utf-8")
         self.output_list = self.output.split("\n")
-        with open(self.output_dir + "EvoSuiteTestOutput", mode='w') as f:
+        with open(path.join(self.output_dir, "EvoSuiteTestOutput"), mode='w') as f:
             for l in self.output_list:
                 print(l, file=f)
 
     def collect_coverage(self):
+        """
+        self.testcase_coverage = {
+            "testn" : {
+                "linen": (0 or not 0)
+            }
+        }
+        """
         print("collect_coverage start")
-        testnum_str = "ESTest_test["
-        linenum_str = "line["
-        for line in self.output_list:
-            if linenum_str in line:
-                linenumber = 0
-                i = line.find(linenum_str) + len(linenum_str)
-                while i < len(line) and line[i].isdigit() and line[i] != ']':
-                    linenumber = int(line[i]) + linenumber * 10
-                    i += 1
-                if not linenumber in self.exist_code_number:
-                    self.exist_code_number.append(linenumber)
-        self.exist_code_number.sort()
-        in_test = False
-        for line in self.output_list:
-            # print(line)
-            if testnum_str in line:
-                in_test = True
-                testnumber = 0
-                i = line.find(testnum_str) + len(testnum_str)
-                while i < len(line) and line[i].isdigit() and line[i] != ']':
-                    testnumber = int(line[i]) + testnumber * 10
-                    i += 1
-                self.testcase_coverage["test" + str(testnumber)] = {}
-                self.exist_test_number.append(testnumber)
-                for exist_code_number in self.exist_code_number:
-                    self.testcase_coverage["test" + str(testnumber)]["line" + str(exist_code_number)] = 0
-                continue
-            if linenum_str in line:
-                if not in_test:
-                    continue
-                linenumber = 0
-                i = line.find(linenum_str) + len(linenum_str)
-                while i < len(line) and line[i].isdigit() and line[i] != ']':
-                    linenumber = int(line[i]) + linenumber * 10
-                    i += 1
-                self.testcase_coverage["test" + str(testnumber)]["line" + str(linenumber)] += 1
-                continue
-        print(self.testcase_coverage)
+        # measure coverage
+        testcase_line_numbers = extract_testcase_line_number(self.get_selected_evosuite_test_path())
+        testcase_count = len(testcase_line_numbers)
+        alone_test_path_list = []
+        for i in range(testcase_count):
+            alone_test_path = make_alone_test(self.get_selected_evosuite_test_path(), i, testcase_line_numbers, self.temp_dir)
+            alone_test_path_list.append(alone_test_path)
+        coverage_list = measure_coverage(
+            alone_test_path_list,
+            self.get_selected_evosuite_test_path(),
+            self.javasource_path,
+            self.collect_all_class_path().split(self.javapath_split_char),
+            self.collect_all_source_path().split(self.javapath_split_char),
+            get_package_name(self.get_selected_evosuite_test_path()) + "." + path.basename(self.get_selected_evosuite_test_path()).replace(".java", ""),
+            path.join(self.temp_dir, "classes"),
+            path.join(self.temp_dir, "dumps"),
+            path.join(self.temp_dir, "reports"),
+            [self.get_evosuite_test_scaffolding_path()]
+        )
+        # exist code number
+        allcov = None
+        for cov in coverage_list:
+            if allcov == None:
+                allcov = cov
+            else:
+                allcov = allcov.merged(cov)
+        self.exist_code_number = sorted(allcov.passed_line)
+        #exist test number
+        testname_list = self.get_testcase_name_list(self.get_selected_evosuite_test_path())
+        for testname in testname_list:
+            self.exist_test_number.append(int(re.match("test([0-9]+)", testname).group(1)))
+        # extract coverage
+        for i, testname in enumerate(testname_list):
+            self.testcase_coverage[testname] = {}
+            for line_num in self.exist_code_number:
+                if line_num in coverage_list[i].passed_line:
+                    self.testcase_coverage[testname]["line" + str(line_num)] = 1
+                else:
+                    self.testcase_coverage[testname]["line" + str(line_num)] = 0
 
-    def collect_object_state_x_m_l(self):
+    def get_testcase_name_list(self, junit_testsuite_path) -> list[str]:
+        retval = []
+        with open(junit_testsuite_path, mode='r') as f:
+            source_lines = f.read().split("\n")
+            print(source_lines)
+            func_dive = 0
+            in_func = False
+            for line in source_lines:
+                tokenized_line = Util.split_token(line)
+                if len(tokenized_line) >= 3:
+                    if tokenized_line[0] == "public" and tokenized_line[1] == "void" and "test" in tokenized_line[2]:
+                        retval.append(tokenized_line[2])
+                        func_dive = 1
+                        in_func = True
+                        continue
+                if in_func:
+                    func_dive += tokenized_line.count('{')
+                    func_dive -= tokenized_line.count('}')
+                    if func_dive == 0:
+                        in_func = False
+        print("alltest: " + str(retval))
+        return retval
+
+    def collect_object_state_xml(self):
         final_state = {}
         testnum_str = "ESTest_test["
-        x_m_lstart_str = "FilallyObjectAttributes_start["
-        x_m_lend_str = "FilallyObjectAttributes_end["
-        in_x_m_l = False
+        xml_start_str = "FilallyObjectAttributes_start["
+        xml_end_str = "FilallyObjectAttributes_end["
+        in_xml = False
         for line in self.output_list:
             if testnum_str in line:
                 testnumber = 0
@@ -416,24 +525,24 @@ class Tool:
                     i += 1
                 final_state["test" + str(testnumber)] = {}
                 continue
-            if x_m_lstart_str in line:
-                i = line.find(x_m_lstart_str) + len(x_m_lstart_str)
+            if xml_start_str in line:
+                i = line.find(xml_start_str) + len(xml_start_str)
                 buf = ""
                 while i < len(line) and line[i].isalnum() and line[i] != ']':
                     buf += line[i]
                     i += 1
                 xmlobject_name = buf
                 final_state["test" + str(testnumber)][xmlobject_name] = ""
-                in_x_m_l = True
+                in_xml = True
                 continue
-            if x_m_lend_str in line:
-                in_x_m_l = False
+            if xml_end_str in line:
+                in_xml = False
                 continue
-            if in_x_m_l:
+            if in_xml:
                 final_state["test" + str(testnumber)][xmlobject_name] += line + "\n"
-        with open(self.output_dir + "out_attrs.json", mode='w') as f:
+        with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
             json.dump(final_state, fp=f, indent=4)
-        self.convert_state_x_m_l_to_element_tree(final_state)
+        self.convert_state_xml_to_element_tree(final_state)
 
     def collect_stdout(self):
         self.testcase_stdout = {}
@@ -448,10 +557,10 @@ class Tool:
         testcase_order = testnum_re.findall(stdout_all)
         for i, testnum in enumerate(testcase_order):
             self.testcase_stdout["test" + testnum] = testcase_stdout_list[i]
-        with open(self.output_dir + "outstdout.json", mode='w') as f:
+        with open(path.join(self.output_dir, "outstdout.json"), mode='w') as f:
             json.dump(self.testcase_stdout, f, indent=4)
 
-    def convert_state_x_m_l_to_element_tree(self, finalstate):
+    def convert_state_xml_to_element_tree(self, finalstate):
         pattern = re.compile(u'&#x[0-9]+;')
         self.testcase_finalstate = {}
         for testname, state_XMLs in finalstate.items():
@@ -476,6 +585,7 @@ class Tool:
                 state = finally_status_dict["finallyObjectState"]
                 try:
                     for objectname, status in state.items():
+                        print(self.testcase_finalstate)
                         if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status):
                             self.testcase_passfail[testname] = True
                         else:
@@ -486,7 +596,7 @@ class Tool:
                 if not self.testcase_stdout[testname] == finally_status_dict["stdout"]:
                     self.testcase_passfail[testname] = False
         print(self.testcase_passfail)
-        with open(self.output_dir + "passfail.json", mode='w') as f:
+        with open(path.join(self.output_dir, "passfail.json"), mode='w') as f:
             json.dump(self.testcase_passfail, f)
 
     def calculate_ochiai(self):
@@ -577,7 +687,7 @@ class Tool:
 
     def make_coverage_csv(self):
         print("make_coverage_csv start")
-        with open(self.output_dir + "output.csv", mode="w") as f:
+        with open(path.join(self.output_dir, "output.csv"), mode="w") as f:
             print(",", file=f, end="")
             for linenum in self.exist_code_number:
                 print("line-" + str(linenum) + ",", file=f, end="")

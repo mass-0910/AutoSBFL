@@ -23,7 +23,7 @@ class Util:
             Util.all_type[i] = classname.strip()
 
     @staticmethod
-    def split_token(sentence):
+    def split_token(sentence) -> list[str]:
         retval = []
         buf = ""
         mode = 0 #name

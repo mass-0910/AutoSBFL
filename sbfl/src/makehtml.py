@@ -1,6 +1,7 @@
 import os
 import os.path as path
 import html
+import webbrowser
 
 class SuspiciousHtmlMaker:
 
@@ -28,18 +29,19 @@ class SuspiciousHtmlMaker:
                 code_str = "<code>"
             self.html_buf += linenum_str.format(linenum) + " | {:.3f} |".format(suspicious) + code_str + html.escape(javaline) + "</code>\n"
         self.html_buf += "</pre>\n</body>\n</html>"
-    
+
     def write_html(self, out_dir=""):
-        with open(out_dir + "outSuspicious.html", mode='w') as f:
+        with open(path.join(out_dir, "outSuspicious.html"), mode='w') as f:
             f.write(self.html_buf)
-    
+        webbrowser.open("file:///" + path.abspath(path.join(out_dir, "outSuspicious.html")))
+
     def max_suspicious(self, ochiai) -> float:
         suspicious_max = 0.0
         for _, suspicious in ochiai.items():
             if suspicious > suspicious_max:
                 suspicious_max = suspicious
         return suspicious_max
-    
+
     def color_code(self, suspicious:float, sus_max:float, maxcol:tuple, mincol:tuple) -> str:
         if sus_max == 0.0:
             sus_rate = 0.0
