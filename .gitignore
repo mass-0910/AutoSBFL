@@ -6,3 +6,5 @@ out/
 temp/
 tempobj/
 __pycache__/
+expect-value/
+out/

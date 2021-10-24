@@ -36,5 +36,4 @@ def make_selected_test(testsource_path: str, selected_test_number_list: int, tes
                 filetext = remove_area_lines(filetext, area[0], area[1], i)
         filetext = re.sub(rf"(\W){path.basename(testsource_path).replace('.java', '')}(\W)", rf"\1{selected_testsource_name.replace('.java', '')}\2", filetext)
         fop.write(filetext)
-    print("選択したテストケースを以下に格納しました:", path.abspath(selected_test_path))
     return selected_test_path
