@@ -227,7 +227,7 @@ class Tool:
             wf.write(self.evacuration_buf[copy_path])
 
     def compile_maven_project(self):
-        print(self.mavenproject_path)
+        #print(self.mavenproject_path)
         result0 = subprocess.run("mvn clean", cwd=self.mavenproject_path, shell=True)
         if result0.returncode != 0:
             raise MavenError("Maven clean finished with Error!")
@@ -268,21 +268,21 @@ class Tool:
             for rem_classpath in allclass_rem:
                 if rem_classpath in allclass_buf:
                     del allclass_buf[rem_classpath]
-                    print("remove", rem_classpath)
+                    #print("remove", rem_classpath)
         return list(allclass_buf.keys())
 
     def make_evosuite_test(self) -> str:
-        print("make_evosuite_test start")
+        #print("make_evosuite_test start")
         evosuite_command = ["java", "-jar", path.join(self.get_this_project_path(), "ext-modules", "evosuite-1.1.0.jar"), "-class", self.javaclass_name, "-projectCP", self.collect_all_class_path()]
         # raise Exception(str(evosuite_command))
-        print(f"execute: {' '.join(evosuite_command)}")
+        #print(f"execute: {' '.join(evosuite_command)}")
         result = subprocess.run(evosuite_command, cwd=self.mavenproject_path)
         if result.returncode != 0:
             raise MakeEvoSuiteError("Some exception has occured in Making EvoSuite Test!")
 
 
     def get_java_environment(self) -> dict:
-        print("path = " + self.get_this_project_path())
+        #print("path = " + self.get_this_project_path())
         evosuite_compile_classpath = self.javapath_split_char.join([
             self.collect_all_class_path(),
             path.join(self.get_this_project_path(), "ext-modules", "evosuite-standalone-runtime-1.1.0.jar"),
@@ -327,7 +327,7 @@ class Tool:
         return testcase_file
 
     def compile_evosuite_test(self):
-        print("compile_evosuite_test start")
+        #print("compile_evosuite_test start")
         javafiles = [self.get_selected_evosuite_test_path(), self.get_evosuite_test_scaffolding_path()]
         try:
             testcase_file = self.get_selected_evosuite_test_path()
@@ -348,20 +348,20 @@ class Tool:
             shutil.copy(testcase_file, self.output_dir)
         try:
             command = ["javac", "-g"] + javafiles
-            print(' '.join(command))
+            #print(' '.join(command))
             result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path)
             if result.returncode != 0:
                 raise CompileEvoSuiteError("Some exception has occured in Compiling EvoSuite Test!")
             self.undo_copy(testcase_file, "temp2")
             self.undo_copy(scaffolding_file, "temp3")
         except:
-            print("m")
+            #print("m")
             self.undo_copy(testcase_file, "temp2")
             self.undo_copy(scaffolding_file, "temp3")
             raise
 
     def modify_evosuite_test(self, evosuite_test_path):
-        print("modify_evosuite_test start")
+        #print("modify_evosuite_test start")
         virtual_jvm_pattern = re.compile(r'mockJVMNonDeterminism = true')
         separate_class_loader_pattern = re.compile(r'separateClassLoader = true')
         timeout_pattern = re.compile(r'@Test\(timeout = [0-9]+\)')
@@ -380,7 +380,7 @@ class Tool:
             raise
 
     def modify_scaffolding(self, scaffoldinf_path):
-        print("modify_scaffolding start")
+        #print("modify_scaffolding start")
         try:
             source_lines = self.file_copy_and_make_line_list(scaffoldinf_path, "temp3")
             with open(scaffoldinf_path, mode='w') as f:
@@ -393,7 +393,7 @@ class Tool:
             raise
 
     def add_infomation_output_to_evosuite_test(self, evosuite_test_path):
-        print("add_infomation_output start")
+        #print("add_infomation_output start")
         try:
             source_lines = self.file_copy_and_make_line_list(evosuite_test_path, "temp3")
             with open(evosuite_test_path, mode='w') as f:
@@ -428,9 +428,9 @@ class Tool:
             raise
 
     def exec_evosuite_test(self):
-        print("exec_evosuite_test start")
+        #print("exec_evosuite_test start")
         command = ["java", "org.junit.runner.JUnitCore", get_package_name(self.javasource_path) + "." + get_class_name(self.javasource_path)[0] + "_ESTest_selected"]
-        print("execevosuite: " + " ".join(command))
+        #print("execevosuite: " + " ".join(command))
         result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE)
         self.output = result.stdout.decode("utf-8")
         self.output_list = self.output.split("\n")
@@ -439,14 +439,7 @@ class Tool:
                 print(l, file=f)
 
     def collect_coverage(self):
-        """
-        self.testcase_coverage = {
-            "testn" : {
-                "linen": (0 or not 0)
-            }
-        }
-        """
-        print("collect_coverage start")
+        #print("collect_coverage start")
         # measure coverage
         testcase_line_numbers = extract_testcase_line_number(self.get_selected_evosuite_test_path())
         testcase_count = len(testcase_line_numbers)
@@ -491,7 +484,7 @@ class Tool:
         retval = []
         with open(junit_testsuite_path, mode='r') as f:
             source_lines = f.read().split("\n")
-            print(source_lines)
+            #print(source_lines)
             func_dive = 0
             in_func = False
             for line in source_lines:
@@ -507,7 +500,7 @@ class Tool:
                     func_dive -= tokenized_line.count('}')
                     if func_dive == 0:
                         in_func = False
-        print("alltest: " + str(retval))
+        #print("alltest: " + str(retval))
         return retval
 
     def collect_object_state_xml(self):
@@ -585,7 +578,7 @@ class Tool:
                 state = finally_status_dict["finallyObjectState"]
                 try:
                     for objectname, status in state.items():
-                        print(self.testcase_finalstate)
+                        #print(self.testcase_finalstate)
                         if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status):
                             self.testcase_passfail[testname] = True
                         else:
@@ -595,7 +588,7 @@ class Tool:
             if "stdout" in finally_status_dict:
                 if not self.testcase_stdout[testname] == finally_status_dict["stdout"]:
                     self.testcase_passfail[testname] = False
-        print(self.testcase_passfail)
+        #print(self.testcase_passfail)
         with open(path.join(self.output_dir, "passfail.json"), mode='w') as f:
             json.dump(self.testcase_passfail, f)
 
@@ -686,7 +679,7 @@ class Tool:
                 return False
 
     def make_coverage_csv(self):
-        print("make_coverage_csv start")
+        #print("make_coverage_csv start")
         with open(path.join(self.output_dir, "output.csv"), mode="w") as f:
             print(",", file=f, end="")
             for linenum in self.exist_code_number:
@@ -733,7 +726,8 @@ def get_class_name(filename:str) -> list:
                             if not tokenized[i + 1] in Util.symbol:
                                 retval.append(tokenized[i + 1])
                         except IndexError as e:
-                            print("Error line: " + line.rstrip(os.linesep))
+                            pass
+                            #print("Error line: " + line.rstrip(os.linesep))
     return retval
 
 def get_package_name(filename:str) -> str:
@@ -764,7 +758,8 @@ def get_package_name(filename:str) -> str:
                             retval = buf
                             break
                         except IndexError as e:
-                            print("Error line: " + line.rstrip(os.linesep))
+                            pass
+                            #print("Error line: " + line.rstrip(os.linesep))
     return retval
 
 class Argument(argparse.ArgumentParser):
