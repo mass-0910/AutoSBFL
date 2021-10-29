@@ -10,7 +10,9 @@ import json
 import re
 import math
 import shutil
+from copy import deepcopy
 import xml.etree.ElementTree as ET
+from xml.etree.ElementTree import Element
 from testselector.core import start_test_selection
 from testselector.extract import extract_testcase_line_number
 from testselector.maketest import make_alone_test
@@ -70,11 +72,10 @@ class Tool:
                     raise
 
     def phase1(self):
+        print("AutoSBFL Phase1")
         try:
             self.compile_maven_project()
             self.source2ClassPath()
-            print(self.javaclass_path)
-            print(self.javaclass_name)
             self.make_evosuite_test()
             self.modify_evosuite_test(self.get_evosuite_test_path())
             self.modify_scaffolding(self.get_evosuite_test_scaffolding_path())
@@ -89,6 +90,7 @@ class Tool:
             raise
 
     def phase2(self):
+        print("AutoSBFL Phase2")
         try:
             self.make_temp_dir()
             self.make_out_dir()
@@ -134,8 +136,6 @@ class Tool:
     def source2ClassPath(self):
         classnames = get_class_name(self.javasource_path)
         packagename = get_package_name(self.javasource_path)
-        print(classnames)
-        print(packagename)
         if not classnames:
             print("%s has no class" % self.javasource_path)
             return
@@ -227,16 +227,18 @@ class Tool:
             wf.write(self.evacuration_buf[copy_path])
 
     def compile_maven_project(self):
-        print(self.mavenproject_path)
-        result0 = subprocess.run("mvn clean", cwd=self.mavenproject_path, shell=True)
+        #print(self.mavenproject_path)
+        print("compiling target project...", end="")
+        result0 = subprocess.run("mvn clean", cwd=self.mavenproject_path, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result0.returncode != 0:
             raise MavenError("Maven clean finished with Error!")
-        result1 = subprocess.run("mvn compile", cwd=self.mavenproject_path, shell=True)
+        result1 = subprocess.run("mvn compile", cwd=self.mavenproject_path, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result1.returncode != 0:
             raise MavenError("Maven compile finished with Error!")
         # result2 = subprocess.run(["mvn", "test-compile"], cwd=self.mavenproject_path)
         # if result2.returncode != 0:
         #     raise MavenError("Maven test-compile finished with Error!")
+        print("done")
 
     def get_this_project_path(self) -> str:
         return path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
@@ -268,21 +270,21 @@ class Tool:
             for rem_classpath in allclass_rem:
                 if rem_classpath in allclass_buf:
                     del allclass_buf[rem_classpath]
-                    print("remove", rem_classpath)
+                    #print("remove", rem_classpath)
         return list(allclass_buf.keys())
 
     def make_evosuite_test(self) -> str:
-        print("make_evosuite_test start")
+        #print("make_evosuite_test start")
         evosuite_command = ["java", "-jar", path.join(self.get_this_project_path(), "ext-modules", "evosuite-1.1.0.jar"), "-class", self.javaclass_name, "-projectCP", self.collect_all_class_path()]
         # raise Exception(str(evosuite_command))
-        print(f"execute: {' '.join(evosuite_command)}")
+        #print(f"execute: {' '.join(evosuite_command)}")
         result = subprocess.run(evosuite_command, cwd=self.mavenproject_path)
         if result.returncode != 0:
             raise MakeEvoSuiteError("Some exception has occured in Making EvoSuite Test!")
 
 
     def get_java_environment(self) -> dict:
-        print("path = " + self.get_this_project_path())
+        #print("path = " + self.get_this_project_path())
         evosuite_compile_classpath = self.javapath_split_char.join([
             self.collect_all_class_path(),
             path.join(self.get_this_project_path(), "ext-modules", "evosuite-standalone-runtime-1.1.0.jar"),
@@ -327,7 +329,7 @@ class Tool:
         return testcase_file
 
     def compile_evosuite_test(self):
-        print("compile_evosuite_test start")
+        print("compiling evosuite test...", end="")
         javafiles = [self.get_selected_evosuite_test_path(), self.get_evosuite_test_scaffolding_path()]
         try:
             testcase_file = self.get_selected_evosuite_test_path()
@@ -344,24 +346,25 @@ class Tool:
         except:
             self.undo_copy(scaffolding_file, "temp3")
             raise
-        if self.output_dir:
-            shutil.copy(testcase_file, self.output_dir)
+        # if self.output_dir:
+        #     shutil.copy(testcase_file, self.output_dir)
         try:
             command = ["javac", "-g"] + javafiles
-            print(' '.join(command))
+            #print(' '.join(command))
             result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path)
             if result.returncode != 0:
                 raise CompileEvoSuiteError("Some exception has occured in Compiling EvoSuite Test!")
             self.undo_copy(testcase_file, "temp2")
             self.undo_copy(scaffolding_file, "temp3")
         except:
-            print("m")
+            #print("m")
             self.undo_copy(testcase_file, "temp2")
             self.undo_copy(scaffolding_file, "temp3")
             raise
+        print("done")
 
     def modify_evosuite_test(self, evosuite_test_path):
-        print("modify_evosuite_test start")
+        #print("modify_evosuite_test start")
         virtual_jvm_pattern = re.compile(r'mockJVMNonDeterminism = true')
         separate_class_loader_pattern = re.compile(r'separateClassLoader = true')
         timeout_pattern = re.compile(r'@Test\(timeout = [0-9]+\)')
@@ -380,7 +383,7 @@ class Tool:
             raise
 
     def modify_scaffolding(self, scaffoldinf_path):
-        print("modify_scaffolding start")
+        #print("modify_scaffolding start")
         try:
             source_lines = self.file_copy_and_make_line_list(scaffoldinf_path, "temp3")
             with open(scaffoldinf_path, mode='w') as f:
@@ -393,7 +396,7 @@ class Tool:
             raise
 
     def add_infomation_output_to_evosuite_test(self, evosuite_test_path):
-        print("add_infomation_output start")
+        #print("add_infomation_output start")
         try:
             source_lines = self.file_copy_and_make_line_list(evosuite_test_path, "temp3")
             with open(evosuite_test_path, mode='w') as f:
@@ -419,34 +422,28 @@ class Tool:
                         if func_dive == 0:
                             in_func = False
                             for o in objectname:
-                                print("System.out.println(\"FilallyObjectAttributes_start[" + o + "]\");", file=f)
+                                print("System.out.println(\"FinallyObjectAttributes_start[" + o + "]\");", file=f)
                                 print("try{System.out.println(new XStream().toXML(" + o + "));}catch(Exception e){e.printStackTrace();}", file=f)
-                                print("System.out.println(\"FilallyObjectAttributes_end[" + o + "]\");", file=f)
+                                print("System.out.println(\"FinallyObjectAttributes_end[" + o + "]\");", file=f)
                             objectname = []
                     print(line, file=f)
         except:
             raise
 
     def exec_evosuite_test(self):
-        print("exec_evosuite_test start")
+        print("executing evosuite test...", end="")
         command = ["java", "org.junit.runner.JUnitCore", get_package_name(self.javasource_path) + "." + get_class_name(self.javasource_path)[0] + "_ESTest_selected"]
-        print("execevosuite: " + " ".join(command))
-        result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE)
-        self.output = result.stdout.decode("utf-8")
+        #print("execevosuite: " + " ".join(command))
+        result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.output = result.stdout.replace(b"\x0D\x0A", b"\x0A").decode("utf-8")
         self.output_list = self.output.split("\n")
-        with open(path.join(self.output_dir, "EvoSuiteTestOutput"), mode='w') as f:
+        with open(path.join(self.temp_dir, "EvoSuiteTestOutput"), mode='w') as f:
             for l in self.output_list:
                 print(l, file=f)
+        print("done")
 
     def collect_coverage(self):
-        """
-        self.testcase_coverage = {
-            "testn" : {
-                "linen": (0 or not 0)
-            }
-        }
-        """
-        print("collect_coverage start")
+        print("collecting coverage...")
         # measure coverage
         testcase_line_numbers = extract_testcase_line_number(self.get_selected_evosuite_test_path())
         testcase_count = len(testcase_line_numbers)
@@ -486,12 +483,13 @@ class Tool:
                     self.testcase_coverage[testname]["line" + str(line_num)] = 1
                 else:
                     self.testcase_coverage[testname]["line" + str(line_num)] = 0
+        print("done")
 
     def get_testcase_name_list(self, junit_testsuite_path) -> list[str]:
         retval = []
         with open(junit_testsuite_path, mode='r') as f:
             source_lines = f.read().split("\n")
-            print(source_lines)
+            #print(source_lines)
             func_dive = 0
             in_func = False
             for line in source_lines:
@@ -507,14 +505,15 @@ class Tool:
                     func_dive -= tokenized_line.count('}')
                     if func_dive == 0:
                         in_func = False
-        print("alltest: " + str(retval))
+        #print("alltest: " + str(retval))
         return retval
 
     def collect_object_state_xml(self):
+        print("collecting actually status of object from test result...", end="")
         final_state = {}
         testnum_str = "ESTest_test["
-        xml_start_str = "FilallyObjectAttributes_start["
-        xml_end_str = "FilallyObjectAttributes_end["
+        xml_start_str = "FinallyObjectAttributes_start["
+        xml_end_str = "FinallyObjectAttributes_end["
         in_xml = False
         for line in self.output_list:
             if testnum_str in line:
@@ -540,18 +539,57 @@ class Tool:
                 continue
             if in_xml:
                 final_state["test" + str(testnumber)][xmlobject_name] += line + "\n"
-        with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
-            json.dump(final_state, fp=f, indent=4)
+        # with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
+        #     json.dump(final_state, fp=f, indent=4)
         self.convert_state_xml_to_element_tree(final_state)
+        self.dict_testcase_state = deepcopy(self.testcase_finalstate)
+        for testcase in self.dict_testcase_state.keys():
+            for object in self.dict_testcase_state[str(testcase)].keys():
+                self.dict_testcase_state[str(testcase)] = {
+                    "finallyObjectState": {
+                        object: self.make_dict_from_xml(self.dict_testcase_state[str(testcase)][str(object)])
+                    }
+                }
+        with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
+            json.dump(self.dict_testcase_state, fp=f, indent=4)
+        print("done")
+
+    def make_dict_from_xml(self, xml_tree:Element):
+        if len(xml_tree) == 0:
+            if xml_tree.text == None: return None
+            if re.match(r"^[+-]?\d+$", xml_tree.text):
+                return int(xml_tree.text)
+            elif re.match(r"^[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$", xml_tree.text):
+                return float(xml_tree.text)
+            else:
+                return xml_tree.text
+        # select mode
+        name_list = []
+        mode = 0 # object mode
+        for elm in xml_tree:
+            if elm.tag in name_list or elm.tag == "null":
+                mode = 1 # list mode
+                break
+            else:
+                name_list.append(elm.tag)
+        # on mode
+        if mode == 0 : entity = {}
+        if mode == 1 : entity = []
+        for xml_elm in xml_tree:
+            if mode == 0:
+                entity[xml_elm.tag.replace("__", "_")] = self.make_dict_from_xml(xml_elm)
+            elif mode == 1:
+                entity.append(self.make_dict_from_xml(xml_elm))
+        return entity
 
     def collect_stdout(self):
+        print("collecting stdout string from test result...", end="")
         self.testcase_stdout = {}
         test_re = re.compile(r"\.ESTest_test\[[0-9]+?\]\n")
         testnum_re = re.compile(r"\.ESTest_test\[([0-9]+?)\]\n")
-        line_re = re.compile(r"line\[[0-9]+?\]\n")
-        xml_re = re.compile(r"FilallyObjectAttributes_start\[\w+\].+?FilallyObjectAttributes_end\[\w+\]\n", re.S)
-        last_re = re.compile(r"\nTime: [0-9]+\.[0-9]+\n\nOK \([0-9]+ tests\)\n\n")
-        stdout_all = last_re.sub("", xml_re.sub("", line_re.sub("", self.output)))
+        xml_re = re.compile(r"FinallyObjectAttributes_start\[\w+\].+?FinallyObjectAttributes_end\[\w+\]\n", re.MULTILINE | re.DOTALL)
+        last_re = re.compile(r"\nTime: [0-9]+\.[0-9]+\n\nOK \([0-9]+ tests\)\n\n", re.MULTILINE | re.DOTALL)
+        stdout_all = last_re.sub("", xml_re.sub("", self.output))
         testcase_stdout_list = test_re.split(stdout_all)
         del testcase_stdout_list[0]
         testcase_order = testnum_re.findall(stdout_all)
@@ -559,6 +597,7 @@ class Tool:
             self.testcase_stdout["test" + testnum] = testcase_stdout_list[i]
         with open(path.join(self.output_dir, "outstdout.json"), mode='w') as f:
             json.dump(self.testcase_stdout, f, indent=4)
+        print("done")
 
     def convert_state_xml_to_element_tree(self, finalstate):
         pattern = re.compile(u'&#x[0-9]+;')
@@ -569,7 +608,9 @@ class Tool:
                 self.testcase_finalstate[testname][objectname] = ET.fromstring(pattern.sub(u'',state_XML))
 
     def judge_test(self):
+        print("verifying expected values with actually values...")
         self.testcase_passfail = {}
+        self.judge_report = {}
         with open(self.expectedjson_path, mode='r') as f:
             expected_dict:dict = json.load(f)
         for testname, finally_status_dict in expected_dict.items():
@@ -582,11 +623,13 @@ class Tool:
                     raise ExpectFileError("'result' cannot take a value '" + finally_status_dict["result"] + "' (pass/fail only)")
                 continue
             if "finallyObjectState" in finally_status_dict:
+                self.judge_report[testname] = {}
                 state = finally_status_dict["finallyObjectState"]
                 try:
                     for objectname, status in state.items():
-                        print(self.testcase_finalstate)
-                        if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status):
+                        self.judge_report[testname][objectname] = {}
+                        #print(self.testcase_finalstate)
+                        if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status, judge_report=self.judge_report[testname][objectname]):
                             self.testcase_passfail[testname] = True
                         else:
                             self.testcase_passfail[testname] = False
@@ -595,11 +638,22 @@ class Tool:
             if "stdout" in finally_status_dict:
                 if not self.testcase_stdout[testname] == finally_status_dict["stdout"]:
                     self.testcase_passfail[testname] = False
-        print(self.testcase_passfail)
+        #print(self.testcase_passfail)
         with open(path.join(self.output_dir, "passfail.json"), mode='w') as f:
-            json.dump(self.testcase_passfail, f)
+            json.dump(self.testcase_passfail, f, indent=4)
+        with open(path.join(self.output_dir, "judgereport.json"), mode='w') as f:
+            json.dump(self.judge_report, f, indent=4)
+        if all(pf[1] for pf in self.testcase_passfail.items()):
+            print("* all tests passed!")
+        else:
+            failedtest = []
+            for pf in self.testcase_passfail.items():
+                if not pf[1]:
+                    failedtest.append(pf[0])
+            print(f"* {','.join(failedtest)} failed!")
 
     def calculate_ochiai(self):
+        print("calculating suspicious values...", end="")
         self.ochiai = {}
         line_pfnum = {}
         total_fail = 0
@@ -622,53 +676,71 @@ class Tool:
                 self.ochiai[linename] = 0.0
                 continue
             self.ochiai[linename] = pfnum['fail'] / math.sqrt(total_fail * (pfnum['fail'] + pfnum['pass']))
+        print("done")
 
     def make_suspicious_value_html(self):
         try:
-            html_maker = SuspiciousHtmlMaker(self.javasource_path, self.ochiai)
+            html_maker = SuspiciousHtmlMaker(self.javasource_path, path.join(self.temp_dir, path.basename(self.get_selected_evosuite_test_path())), self.ochiai, self.dict_testcase_state, self.testcase_stdout, self.testcase_passfail, self.judge_report)
             html_maker.write_html(self.output_dir)
         except:
             raise
 
-    def is_satisfied_state(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None) -> bool:
+    def is_satisfied_state(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None, judge_report:dict=None) -> bool:
+        passed = True
         if expected_dict == None and expected_list == None: raise Exception("is_satisfied_state(): no expected values was given.")
         if expected_dict != None and expected_list != None: raise Exception("is_satisfied_state(): both dict and list was given.")
         if expected_dict != None and expected_list == None:
             for attr_name, exp_value in expected_dict.items():
-                attr_tree = tree.find(attr_name)
+                attr_tree = tree.find(attr_name.replace("_", "__"))
                 if attr_tree != None:
-                    if self.is_satisfied_state_loop_element(attr_tree, exp_value):
+                    if self.is_satisfied_state_loop_element(attr_tree, exp_value, judge_report):
                         continue
                     else:
-                        return False
+                        passed = False
+                        continue
                 else:
                     if self.is_satisfied_value("null", exp_value):
                         continue
                     else:
-                        return False
+                        passed = False
+                        continue
         elif expected_dict == None and expected_list != None:
             if len(tree) != len(expected_list):
-                return False
-            for i, exp_value in enumerate(expected_list):
-                if not self.is_satisfied_state_loop_element(tree[i], exp_value):
-                    return False
-        return True
+                passed = False
+                judge_report[tree.tag.replace("__", "_")] = (False, "incollect array length")
+            else:
+                judge_report[tree.tag.replace("__", "_")] = []
+                for i, exp_value in enumerate(expected_list):
+                    judge_report[tree.tag.replace("__", "_")].append({})
+                    if not self.is_satisfied_state_loop_element(tree[i], exp_value, judge_report[tree.tag.replace("__", "_")][i]):
+                        passed = False
+        return passed
 
-    def is_satisfied_state_loop_element(self, attr_tree, exp_elm) -> bool:
+    def is_satisfied_state_loop_element(self, attr_tree, exp_elm, judge_report:dict=None) -> bool:
         if isinstance(exp_elm, dict): #if exp_elm is object
             if attr_tree.text != "":
-                return self.is_satisfied_state(attr_tree, expected_dict=exp_elm)
+                judge_report[attr_tree.tag.replace("__", "_")] = {}
+                return self.is_satisfied_state(attr_tree, expected_dict=exp_elm, judge_report=judge_report[attr_tree.tag.replace("__", "_")])
             else:
                 return False
         elif isinstance(exp_elm, list): #if exp_elm is array
             if attr_tree.text != "":
-                return self.is_satisfied_state(attr_tree, expected_list=exp_elm)
+                return self.is_satisfied_state(attr_tree, expected_list=exp_elm, judge_report=judge_report)
             else:
                 return False
         else: #if exp_elm is primitive or string
-            if self.is_satisfied_value(attr_tree.text, str(exp_elm)):
+            if attr_tree.tag == "null":
+                xml_elm = "null"
+            else:
+                xml_elm = attr_tree.text
+            if exp_elm == None:
+                exp_elm = "null"
+            # print(attr_tree.tag + " " + str(attr_tree.text) + " " + xml_elm + " " + str(exp_elm))
+            if self.is_satisfied_value(xml_elm, str(exp_elm)):
+                judge_report[attr_tree.tag.replace("__", "_")] = (True, "")
                 return True
             else:
+                judge_report[attr_tree.tag.replace("__", "_")] = (False, "expected:" + str(exp_elm))
                 return False
 
     def is_satisfied_value(self, xml_elm_str, exp_elm_str) -> bool:
@@ -686,7 +758,7 @@ class Tool:
                 return False
 
     def make_coverage_csv(self):
-        print("make_coverage_csv start")
+        #print("make_coverage_csv start")
         with open(path.join(self.output_dir, "output.csv"), mode="w") as f:
             print(",", file=f, end="")
             for linenum in self.exist_code_number:
@@ -733,7 +805,8 @@ def get_class_name(filename:str) -> list:
                             if not tokenized[i + 1] in Util.symbol:
                                 retval.append(tokenized[i + 1])
                         except IndexError as e:
-                            print("Error line: " + line.rstrip(os.linesep))
+                            pass
+                            #print("Error line: " + line.rstrip(os.linesep))
     return retval
 
 def get_package_name(filename:str) -> str:
@@ -764,7 +837,8 @@ def get_package_name(filename:str) -> str:
                             retval = buf
                             break
                         except IndexError as e:
-                            print("Error line: " + line.rstrip(os.linesep))
+                            pass
+                            #print("Error line: " + line.rstrip(os.linesep))
     return retval
 
 class Argument(argparse.ArgumentParser):

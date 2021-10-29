@@ -22,7 +22,7 @@ if __name__ == "__main__":
         # for i, coverage in enumerate(coverage_list):
         #     print(i, coverage)
         selected_testcase_number_list = select_testcase(coverage_list)
-        print("selected_testcase_number_list =", selected_testcase_number_list)
+        #print("selected_testcase_number_list =", selected_testcase_number_list)
         selected_test_path = make_selected_test(inputs['junit_testsuite_path'], selected_testcase_number_list, testcase_line_numbers, inputs['outdir'])
     except Exception as e:
         print(traceback.format_exc())
