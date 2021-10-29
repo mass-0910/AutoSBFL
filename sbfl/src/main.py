@@ -228,7 +228,7 @@ class Tool:
 
     def compile_maven_project(self):
         #print(self.mavenproject_path)
-        print("compiling target project...")
+        print("compiling target project...", end="")
         result0 = subprocess.run("mvn clean", cwd=self.mavenproject_path, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result0.returncode != 0:
             raise MavenError("Maven clean finished with Error!")
@@ -238,6 +238,7 @@ class Tool:
         # result2 = subprocess.run(["mvn", "test-compile"], cwd=self.mavenproject_path)
         # if result2.returncode != 0:
         #     raise MavenError("Maven test-compile finished with Error!")
+        print("done")
 
     def get_this_project_path(self) -> str:
         return path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
@@ -345,8 +346,8 @@ class Tool:
         except:
             self.undo_copy(scaffolding_file, "temp3")
             raise
-        if self.output_dir:
-            shutil.copy(testcase_file, self.output_dir)
+        # if self.output_dir:
+        #     shutil.copy(testcase_file, self.output_dir)
         try:
             command = ["javac", "-g"] + javafiles
             #print(' '.join(command))
@@ -436,7 +437,7 @@ class Tool:
         result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.output = result.stdout.replace(b"\x0D\x0A", b"\x0A").decode("utf-8")
         self.output_list = self.output.split("\n")
-        with open(path.join(self.output_dir, "EvoSuiteTestOutput"), mode='w') as f:
+        with open(path.join(self.temp_dir, "EvoSuiteTestOutput"), mode='w') as f:
             for l in self.output_list:
                 print(l, file=f)
         print("done")
@@ -541,16 +542,16 @@ class Tool:
         # with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
         #     json.dump(final_state, fp=f, indent=4)
         self.convert_state_xml_to_element_tree(final_state)
-        dict_testcase_state = deepcopy(self.testcase_finalstate)
-        for testcase in dict_testcase_state.keys():
-            for object in dict_testcase_state[str(testcase)].keys():
-                dict_testcase_state[str(testcase)] = {
+        self.dict_testcase_state = deepcopy(self.testcase_finalstate)
+        for testcase in self.dict_testcase_state.keys():
+            for object in self.dict_testcase_state[str(testcase)].keys():
+                self.dict_testcase_state[str(testcase)] = {
                     "finallyObjectState": {
-                        object: self.make_dict_from_xml(dict_testcase_state[str(testcase)][str(object)])
+                        object: self.make_dict_from_xml(self.dict_testcase_state[str(testcase)][str(object)])
                     }
                 }
         with open(path.join(self.output_dir, "out_attrs.json"), mode='w') as f:
-            json.dump(dict_testcase_state, fp=f, indent=4)
+            json.dump(self.dict_testcase_state, fp=f, indent=4)
         print("done")
 
     def make_dict_from_xml(self, xml_tree:Element):
@@ -609,6 +610,7 @@ class Tool:
     def judge_test(self):
         print("verifying expected values with actually values...")
         self.testcase_passfail = {}
+        self.judge_report = {}
         with open(self.expectedjson_path, mode='r') as f:
             expected_dict:dict = json.load(f)
         for testname, finally_status_dict in expected_dict.items():
@@ -621,11 +623,13 @@ class Tool:
                     raise ExpectFileError("'result' cannot take a value '" + finally_status_dict["result"] + "' (pass/fail only)")
                 continue
             if "finallyObjectState" in finally_status_dict:
+                self.judge_report[testname] = {}
                 state = finally_status_dict["finallyObjectState"]
                 try:
                     for objectname, status in state.items():
+                        self.judge_report[testname][objectname] = {}
                         #print(self.testcase_finalstate)
-                        if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status):
+                        if self.is_satisfied_state(self.testcase_finalstate[testname][objectname], expected_dict=status, judge_report=self.judge_report[testname][objectname]):
                             self.testcase_passfail[testname] = True
                         else:
                             self.testcase_passfail[testname] = False
@@ -636,7 +640,9 @@ class Tool:
                     self.testcase_passfail[testname] = False
         #print(self.testcase_passfail)
         with open(path.join(self.output_dir, "passfail.json"), mode='w') as f:
-            json.dump(self.testcase_passfail, f)
+            json.dump(self.testcase_passfail, f, indent=4)
+        with open(path.join(self.output_dir, "judgereport.json"), mode='w') as f:
+            json.dump(self.judge_report, f, indent=4)
         if all(pf[1] for pf in self.testcase_passfail.items()):
             print("* all tests passed!")
         else:
@@ -674,44 +680,52 @@ class Tool:
 
     def make_suspicious_value_html(self):
         try:
-            html_maker = SuspiciousHtmlMaker(self.javasource_path, self.ochiai)
+            html_maker = SuspiciousHtmlMaker(self.javasource_path, path.join(self.temp_dir, path.basename(self.get_selected_evosuite_test_path())), self.ochiai, self.dict_testcase_state, self.testcase_stdout, self.testcase_passfail, self.judge_report)
             html_maker.write_html(self.output_dir)
         except:
             raise
 
-    def is_satisfied_state(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None) -> bool:
+    def is_satisfied_state(self, tree:ET.Element, expected_dict:dict=None, expected_list:list=None, judge_report:dict=None) -> bool:
+        passed = True
         if expected_dict == None and expected_list == None: raise Exception("is_satisfied_state(): no expected values was given.")
         if expected_dict != None and expected_list != None: raise Exception("is_satisfied_state(): both dict and list was given.")
         if expected_dict != None and expected_list == None:
             for attr_name, exp_value in expected_dict.items():
                 attr_tree = tree.find(attr_name.replace("_", "__"))
                 if attr_tree != None:
-                    if self.is_satisfied_state_loop_element(attr_tree, exp_value):
+                    if self.is_satisfied_state_loop_element(attr_tree, exp_value, judge_report):
                         continue
                     else:
-                        return False
+                        passed = False
+                        continue
                 else:
                     if self.is_satisfied_value("null", exp_value):
                         continue
                     else:
-                        return False
+                        passed = False
+                        continue
         elif expected_dict == None and expected_list != None:
             if len(tree) != len(expected_list):
-                return False
-            for i, exp_value in enumerate(expected_list):
-                if not self.is_satisfied_state_loop_element(tree[i], exp_value):
-                    return False
-        return True
+                passed = False
+                judge_report[tree.tag.replace("__", "_")] = (False, "incollect array length")
+            else:
+                judge_report[tree.tag.replace("__", "_")] = []
+                for i, exp_value in enumerate(expected_list):
+                    judge_report[tree.tag.replace("__", "_")].append({})
+                    if not self.is_satisfied_state_loop_element(tree[i], exp_value, judge_report[tree.tag.replace("__", "_")][i]):
+                        passed = False
+        return passed
 
-    def is_satisfied_state_loop_element(self, attr_tree, exp_elm) -> bool:
+    def is_satisfied_state_loop_element(self, attr_tree, exp_elm, judge_report:dict=None) -> bool:
         if isinstance(exp_elm, dict): #if exp_elm is object
             if attr_tree.text != "":
-                return self.is_satisfied_state(attr_tree, expected_dict=exp_elm)
+                judge_report[attr_tree.tag.replace("__", "_")] = {}
+                return self.is_satisfied_state(attr_tree, expected_dict=exp_elm, judge_report=judge_report[attr_tree.tag.replace("__", "_")])
             else:
                 return False
         elif isinstance(exp_elm, list): #if exp_elm is array
             if attr_tree.text != "":
-                return self.is_satisfied_state(attr_tree, expected_list=exp_elm)
+                return self.is_satisfied_state(attr_tree, expected_list=exp_elm, judge_report=judge_report)
             else:
                 return False
         else: #if exp_elm is primitive or string
@@ -723,8 +737,10 @@ class Tool:
                 exp_elm = "null"
             # print(attr_tree.tag + " " + str(attr_tree.text) + " " + xml_elm + " " + str(exp_elm))
             if self.is_satisfied_value(xml_elm, str(exp_elm)):
+                judge_report[attr_tree.tag.replace("__", "_")] = (True, "")
                 return True
             else:
+                judge_report[attr_tree.tag.replace("__", "_")] = (False, "expected:" + str(exp_elm))
                 return False
 
     def is_satisfied_value(self, xml_elm_str, exp_elm_str) -> bool:
