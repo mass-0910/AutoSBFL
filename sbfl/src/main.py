@@ -546,7 +546,7 @@ class Tool:
         for testcase in self.dict_testcase_state.keys():
             for object in self.dict_testcase_state[str(testcase)].keys():
                 self.dict_testcase_state[str(testcase)] = {
-                    "finallyObjectState": {
+                    "finalObjectState": {
                         object: self.make_dict_from_xml(self.dict_testcase_state[str(testcase)][str(object)])
                     }
                 }
@@ -622,9 +622,9 @@ class Tool:
                 else:
                     raise ExpectFileError("'result' cannot take a value '" + finally_status_dict["result"] + "' (pass/fail only)")
                 continue
-            if "finallyObjectState" in finally_status_dict:
+            if "finalObjectState" in finally_status_dict:
                 self.judge_report[testname] = {}
-                state = finally_status_dict["finallyObjectState"]
+                state = finally_status_dict["finalObjectState"]
                 try:
                     for objectname, status in state.items():
                         self.judge_report[testname][objectname] = {}

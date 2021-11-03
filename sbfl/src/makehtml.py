@@ -93,8 +93,8 @@ class SuspiciousHtmlMaker:
             testcase_str = "".join(testcase_lines[testcase_line_number[0]:testcase_line_number[1]])
             testcase_name = testname_pattern.search(testcase_str).group(1)
             self.html_buf += f"<h2>{testcase_name}</h2><p>Status:<font color=\"#{'008000' if passfail[testcase_name] else 'FF0000'}\">{'passed' if passfail[testcase_name] else 'failed'}</font></p>Code:<pre class=\"prettyprint linenums\">{testcase_str}</pre>"
-            json.dumps(actually[testcase_name]['finallyObjectState'], indent=2)
-            self.html_buf += f"Finally Attributes:<pre class='prettyprint'>{self.make_compare_json(actually[testcase_name]['finallyObjectState'], judgereport[testcase_name])[0]}</pre>"
+            json.dumps(actually[testcase_name]['finalObjectState'], indent=2)
+            self.html_buf += f"Final Attributes:<pre class='prettyprint'>{self.make_compare_json(actually[testcase_name]['finalObjectState'], judgereport[testcase_name])[0]}</pre>"
         self.html_buf += "</div></div>\n"
 
         self.html_buf += "</div></body>\n</html>"
