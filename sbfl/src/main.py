@@ -55,9 +55,9 @@ class Tool:
             self.javapath_split_char = ":"
 
     def set_path(self, mavenproject_path, javasource_path, expectedvaluefile_path=None):
-        self.mavenproject_path = mavenproject_path
-        self.javasource_path = javasource_path
-        self.expectedjson_path = expectedvaluefile_path
+        self.mavenproject_path = path.abspath(mavenproject_path)
+        self.javasource_path = path.abspath(javasource_path)
+        self.expectedjson_path = path.abspath(expectedvaluefile_path)
         if not path.exists(mavenproject_path):
             raise FileNotFoundError(mavenproject_path + " doesn't exist.")
         if not path.exists(javasource_path):
@@ -437,7 +437,7 @@ class Tool:
         result = subprocess.run(command, env=self.get_java_environment(), cwd=self.mavenproject_path, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.output = result.stdout.replace(b"\x0D\x0A", b"\x0A").decode("utf-8")
         self.output_list = self.output.split("\n")
-        with open(path.join(self.temp_dir, "EvoSuiteTestOutput"), mode='w') as f:
+        with open(path.join(self.output_dir, "EvoSuiteTestOutput"), mode='w') as f:
             for l in self.output_list:
                 print(l, file=f)
         print("done")
