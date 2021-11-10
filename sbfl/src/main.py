@@ -681,7 +681,7 @@ class Tool:
     def make_suspicious_value_html(self):
         try:
             html_maker = SuspiciousHtmlMaker(self.javasource_path, path.join(self.temp_dir, path.basename(self.get_selected_evosuite_test_path())), self.ochiai, self.dict_testcase_state, self.testcase_stdout, self.testcase_passfail, self.judge_report)
-            html_maker.write_html(self.output_dir)
+            html_maker.write_html(self.output_dir, path.join(self.get_this_project_path(), "ext-modules", "google-code-prettify"))
         except:
             raise
 

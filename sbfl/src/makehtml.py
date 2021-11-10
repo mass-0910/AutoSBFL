@@ -4,6 +4,7 @@ import html
 import webbrowser
 import re
 import json
+import shutil
 from testselector.extract import extract_testcase_line_number
 
 class SuspiciousHtmlMaker:
@@ -63,7 +64,7 @@ class SuspiciousHtmlMaker:
                 display: block;
             }
         """
-        self.html_buf += f"</style><script src=\"https://cdn.rawgit.com/google/code-prettify/master/loader/run_prettify.js\"></script>\n<body bgcolor=\"#FFFFFF\" text=\"#1C1B22\"><h1>{path.basename(javacode_path)} - AutoSBFL Report</h1><div class=\"wrapper\">\n"
+        self.html_buf += f"</style><script src=\"./google-code-prettify/run_prettify.js\"></script>\n<body bgcolor=\"#FFFFFF\" text=\"#1C1B22\"><h1>{path.basename(javacode_path)} - AutoSBFL Report</h1><div class=\"wrapper\">\n"
 
         #suspicious code tab
         self.html_buf += "<div class=\"section-\"><input class=\"section-radio\" id=\"tab1\" name=\"tab\" type=\"radio\" checked><label class=\"section-name section-one\" for=\"tab1\">SUSP</label><div class=\"section-content\"><pre class=\"prettyprint linenums\">\n"
@@ -99,9 +100,10 @@ class SuspiciousHtmlMaker:
 
         self.html_buf += "</div></body>\n</html>"
 
-    def write_html(self, out_dir=""):
+    def write_html(self, out_dir, prettify_dir_path):
         with open(path.join(out_dir, "outSuspicious.html"), mode='w') as f:
             f.write(self.html_buf)
+        shutil.copytree(prettify_dir_path, path.join(out_dir, "google-code-prettify"), dirs_exist_ok=True)
         webbrowser.open("file:///" + path.abspath(path.join(out_dir, "outSuspicious.html")))
 
     def max_suspicious(self, ochiai) -> float:

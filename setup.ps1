@@ -17,3 +17,8 @@ mkdir ext-modules/jacoco
 Invoke-WebRequest -Uri https://search.maven.org/remotecontent?filepath=org/jacoco/jacoco/0.8.7/jacoco-0.8.7.zip -Outfile ext-modules/jacoco/jacoco.zip
 Expand-Archive -Force -Path ext-modules/jacoco/jacoco.zip -DestinationPath ext-modules/jacoco/
 Remove-Item ext-modules/jacoco/jacoco.zip
+
+# Install Google-code-prettify
+Invoke-WebRequest -Uri https://github.com/googlearchive/code-prettify/raw/master/distrib/prettify-small.zip -Outfile ext-modules/google-code-prettify.zip
+Expand-Archive -Force -Path ext-modules/google-code-prettify.zip -DestinationPath ext-modules/
+Remove-Item ext-modules/google-code-prettify.zip
