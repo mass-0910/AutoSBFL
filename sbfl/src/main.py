@@ -71,6 +71,9 @@ class Tool:
                 except:
                     raise
 
+    def do_select(self, select):
+        self.do_select_flag = select
+
     def phase1(self):
         print("AutoSBFL Phase1")
         try:
@@ -79,13 +82,14 @@ class Tool:
             self.make_evosuite_test()
             self.modify_evosuite_test(self.get_evosuite_test_path())
             self.modify_scaffolding(self.get_evosuite_test_scaffolding_path())
-            start_test_selection(
-                self.get_evosuite_test_path(),
-                self.javasource_path,
-                self.collect_all_class_path(),
-                self.collect_all_source_path(),
-                [self.get_evosuite_test_scaffolding_path()]
-            )
+            if self.do_select_flag:
+                start_test_selection(
+                    self.get_evosuite_test_path(),
+                    self.javasource_path,
+                    self.collect_all_class_path(),
+                    self.collect_all_source_path(),
+                    [self.get_evosuite_test_scaffolding_path()]
+                )
         except:
             raise
 
@@ -849,6 +853,7 @@ class Argument(argparse.ArgumentParser):
         phase1_parser = self.sub_parser.add_parser("phase1", help="Execute EvoSuite and create a test suite.")
         phase1_parser.add_argument("mavenproject_path", help="Root path of Maven project containing javasource_path")
         phase1_parser.add_argument("javasource_path", help="The java source path you want to debug")
+        phase1_parser.add_argument("--no_delete", help="Set this flag if you don't want to delete test cases", action="store_true")
         phase1_parser.set_defaults(handler=phase1_func)
         phase2_parser = self.sub_parser.add_parser("phase2", help="Calculate suspicious score")
         phase2_parser.add_argument("mavenproject_path", help="Root path of Maven project containing javasource_path")
@@ -872,6 +877,7 @@ if __name__ == "__main__":
             if not hasattr(args, 'command'):
                 if hasattr(args, 'expectedvaluefile_path'):
                     tool.set_path(args.mavenproject_path, args.javasource_path, args.expectedvaluefile_path)
+                    tool.do_select(not args.no_delete)
                 else:
                     tool.set_path(args.mavenproject_path, args.javasource_path)
                 args.handler()
